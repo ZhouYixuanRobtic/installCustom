@@ -1,14 +1,19 @@
 # -*- coding: utf-8 -*-
-from __future__ import absolute_import
-from __future__ import print_function
 from calendar import c
 import os
 import re
 import sys
 import time
 import subprocess
+import importlib
 import locale
 from queue import Queue
+import threading
+import http.client
+import time
+from urllib.parse import urlparse
+
+
 #TODO try import! failed skip
 have_yaml_module = False
 try:
@@ -20,6 +25,8 @@ except:
 encoding = locale.getpreferredencoding()
 encoding_utf8 = encoding.find("UTF")>-1
 
+
+tr = None
 
 class ConfigHelper():
     def __init__(self,record_file=None):
@@ -774,32 +781,60 @@ def GetOsVersion():
 
 osversion = GetOsVersion()
 
+class Tracking():
+    """
+    日志跟踪模块
+    """
+    logs = []
+    err_logs = []
+    need_report = False
+    def put_log(values,end=""):
+        Tracking.logs.append((values,end))
+    
+    def put_cmd_result(code,out,err,command):
+        if code!=0:
+            Tracking.need_report = True
+            Tracking.err_logs.append("Execute Command: {} Error Code{}".format(command,code))
+            Tracking.err_logs.append('====================OUT====================')
+            for line in out:
+                Tracking.err_logs.append(line)
+            Tracking.err_logs.append('====================ERR====================')
+            for line in err:
+                Tracking.err_logs.append(line)
+
+
 class PrintUtils():
+    
     @staticmethod
     def print_delay(data,delay=0.03,end="\n"):
+        PrintUtils.print_text("\033[37m",end="")
         for d in data:
             d = d.encode("utf-8").decode("utf-8")
-            print("\033[37m{}".format(d),end="",flush=True)
+            PrintUtils.print_text("{}".format(d),end="",flush=True)
             time.sleep(delay)
-        print(end=end)
+        PrintUtils.print_text(end=end)
 
     @staticmethod
     def print_error(data,end="\n"):
-        print("\033[31m{}\033[37m".format(data),end=end)
+        PrintUtils.print_text("\033[31m{}\033[37m".format(data),end=end)
 
     @staticmethod
     def print_info(data,end="\n"):
-        print("\033[37m{}".format(data))
+        PrintUtils.print_text("\033[37m{}".format(data),end=end)
 
     @staticmethod
     def print_success(data,end="\n"):
-        print("\033[32m{}\033[37m".format(data))
+        PrintUtils.print_text("\033[32m{}\033[37m".format(data),end=end)
 
     @staticmethod
     def print_warn(data,end="\n"):
-        print("\033[33m{}\033[37m".format(data))
+        PrintUtils.print_text("\033[33m{}\033[37m".format(data),end=end)
 
-
+    @staticmethod
+    def print_text(values="",end="\n",flush= False):
+        print(values,end=end,flush=flush)
+        Tracking.put_log(values,end=end)
+        
     @staticmethod
     def print_fish(timeout=1,scale=30):
         return 
@@ -812,6 +847,9 @@ class PrintUtils():
             print("\r{:^3.0f}%[{}->{}]{:.2f}s".format(c,a,b,dur),end = "")
             time.sleep(timeout/scale)
         print("\n")
+
+
+
 
 class Task():
     """
@@ -832,114 +870,171 @@ class Task():
 
 
 class Progress():
+    import shutil
+
+    # 获取终端的行宽
+    terminal_size = shutil.get_terminal_size()
+    line_width = terminal_size.columns
+
     def __init__(self,timeout=10,scale=20) -> None:
         self.timeout = timeout
         self.start = time.perf_counter()
         self.dur  = time.perf_counter() -self.start 
         self.scale = scale
         self.i = 0
+        self.latest_log = ""
 
     def update(self,log=""):
-        # length = 60
-        # if len(log)>length: log = log[:length]
-        # log = log+"                "
         if (self.i%4) == 0: 
-            print('\r[/]{}'.format(log),end="")
+            PrintUtils.print_text('\r[/][{:.2f}s] {}'.format(self.dur,log),end="")
         elif(self.i%4) == 1: 
-            print('\r[\\]{}'.format(log),end="")
+            PrintUtils.print_text('\r[\\][{:.2f}s] {}'.format(self.dur,log),end="")
         elif (self.i%4) == 2: 
-            print('\r[|]{}'.format(log),end="")
+            PrintUtils.print_text('\r[|][{:.2f}s] {}'.format(self.dur,log),end="")
         elif (self.i%4) == 3: 
-            print('\r[-]{}'.format(log),end="")
+            PrintUtils.print_text('\r[-][{:.2f}s] {}'.format(self.dur,log),end="")
         sys.stdout.flush()
         self.i += 1
         # update time
-        # self.dur  = time.perf_counter() -self.start 
-        # self.i = int(self.dur/(self.timeout/self.scale))
-        # a = "🐟" * self.i
-        # b = ".." * (self.scale - self.i)
-        # c = (self.i / self.scale) * 100
-        # 
-        # log += " "*()
-        # print("\r{:^3.0f}%[{}->{}]{:.2f}s {}".format(c,a,b,self.dur,log),end = "")
-    
-    def finsh(self,log=""):
-        length = 60
-        if len(log)>length: log = log[:length]
-        log = log+"                           " 
-        print('\r[-]{}'.format(log),end="")
-        # i = self.scale
-        # a = "🐟" * i
-        # b = ".." * (self.scale - i)
-        # c = (i / self.scale) * 100
-        # print("\r{:^3.0f}%[{}->{}]{:.2f}s {}".format(c,a,b,self.dur,log),end = "")
+        self.latest_log = log
+        self.dur  = time.perf_counter() -self.start 
+
+    def update_time(self):
+        log = self.latest_log
+        if (self.i%4) == 0: 
+            print('\r[/][{:.2f}s] {}'.format(self.dur,log),end="")
+        elif(self.i%4) == 1: 
+            print('\r[\\][{:.2f}s] {}'.format(self.dur,log),end="")
+        elif (self.i%4) == 2: 
+            print('\r[|][{:.2f}s] {}'.format(self.dur,log),end="")
+        elif (self.i%4) == 3: 
+            print('\r[-][{:.2f}s] {}'.format(self.dur,log),end="")
+        sys.stdout.flush()
+        self.dur  = time.perf_counter() -self.start 
+
+
+    def finsh(self,log="",color='\033[32m'):
+        log = log+" "*(Progress.line_width-len(log)-15) 
+        PrintUtils.print_text('\r{}[-][{:.2f}s] {}'.format(color,self.dur, log), end="\r\n\r\n")
 
 
 
 class CmdTask(Task):
-    def __init__(self,command,timeout=0,groups=False,os_command=False,path=None) -> None:
+    def __init__(self,command,timeout=0,groups=False,os_command=False,path=None,executable='/bin/sh') -> None:
         super().__init__(Task.TASK_TYPE_CMD)
         self.command = command
         self.timeout = timeout
         self.os_command = os_command
         self.cwd = path
+        self.executable = executable
 
-    @staticmethod
-    def __run_command(command,timeout=10,cwd=None):
-        out,err = [],[]
-        sub = subprocess.Popen(command,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            cwd=cwd,
-            shell=True)
+    def getlog(self,callback=None):
+        stdout_line = ""
+        for line in iter(self.sub.stdout.readline,'b'):
+            line = line.rstrip()#.decode('utf8', errors="ignore")
+            if callback and line:
+                callback(line,'out')
+            if(subprocess.Popen.poll(self.sub) is not None):
+                if(line==""):
+                    break
 
-        # sub.communicate
-        bar  = Progress(timeout=timeout)
-        bar.update()
+        for line in iter(self.sub.stderr.readline,'b'):
+            line = line.rstrip()#.decode('utf8', errors="ignore")
+            if callback and line:
+                callback(line,'err')
+            if(subprocess.Popen.poll(self.sub) is not None):
+                if(line==""):
+                    break
 
-        while sub.poll()==None:
-            line = sub.stdout.readline()
-            line = line.decode("utf-8").strip("\n")
-            out.append(line)
-            bar.update(line)
-            time.sleep(0.01)
-
-        lines = sub.stdout.readlines()
+    def getlogs(self):
+        out = []
+        lines = self.sub.stdout.readlines()
         for line in lines:
-            line = line.decode("utf-8").strip("\n")
-            out.append(line)
-            bar.update(line)
-            time.sleep(0.01)
+            line = line.decode("utf-8", errors="ignore").strip()
+            if line:
+                out.append(line)
+            time.sleep(0.001)
+        lines = self.sub.stderr.readlines()
+        for line in lines:
+            line = line.decode("utf-8", errors="ignore").strip()
+            if line:
+                out.append(line)
+            time.sleep(0.001)
+
+        logstr = ""
+        for log in out:
+            logstr += log
+        return logstr
 
 
-        if sub.poll()==None:
-            sub.kill()
-            print("\033[31mTimeOut!:{}".format(timeout))
-            return None,'','运行超时:请切换网络后重试'
+    def command_thread(self,executable='/bin/sh'):
+        self.ret_ok = False
+        out,err = [],[]
+        self.sub = subprocess.Popen(self.command,
+                                    stdout=subprocess.PIPE,
+                                    stderr=subprocess.PIPE,
+                                    cwd=self.cwd,
+                                    shell=True,
+                                    bufsize=1,  # Line buffered
+                                    universal_newlines=True)
+        self.bar = Progress()
+        err = []
+        out = []
+        def log_callback(log,log_type):
+            self.bar.update(log)
+            if log_type=='out':
+                out.append(log)
+            else:
+                err.append(log)
 
-        code = sub.returncode
+        self.getlog(log_callback)
+        code = self.sub.returncode
+
         msg = 'code:{}'.format(code)
         if code == 0: msg="success"
-        bar.finsh('Result:{}'.format(msg))
 
-        for line in  sub.stderr.readlines():
-            err.append(line.decode('utf-8'))
-        print("\n")
-        return (code,out,err)
-    
-    @staticmethod
-    def _os_command(command,timeout=10,cwd=None):
-        if cwd is not None:
-            os.system("cd {} && {}".format(cwd,command))
+        if code==0:
+            self.bar.finsh('CMD Result:{}'.format(msg),'\033[37m')
         else:
-            os.system(command)
+            self.bar.finsh('CMD Result:{}'.format(msg),'\033[31m')
+
+
+        self.ret_code = code
+        self.ret_out = out
+        self.ret_err = err
+        self.ret_ok = True
+
+    def run_command(self,executable='/bin/sh'):
+        self.command_thread = threading.Thread(target=self.command_thread)
+        self.command_thread.start()
+        time.sleep(0.5) # 等待线程启动
+        while self.is_command_finish()==-1 and not self.ret_ok:
+            self.bar.update_time()
+            time.sleep(0.1)
+
+        Tracking.put_cmd_result(self.ret_code,self.ret_out,self.ret_err,self.command)
+        return (self.ret_code,self.ret_out,self.ret_err)
+
+    def is_command_finish(self):
+        # poll 是返回码
+        if self.sub.poll() == None:
+            return -1
+        return self.sub.poll()
+
+    def run_os_command(self):
+        """
+        退出即结束
+        """
+        if self.cwd is not None:
+            os.system("cd {} && {}".format(self.cwd,self.command))
+        else:
+            os.system(self.command)
 
     def run(self):
         PrintUtils.print_info("\033[32mRun CMD Task:[{}]".format(self.command))
         if self.os_command:
-            return self._os_command(self.command,self.timeout,cwd=self.cwd)
-        return self.__run_command(self.command,self.timeout,cwd=self.cwd)
-
+            return self.run_os_command()
+        return self.run_command()
 
 
 class ChooseTask(Task):
@@ -963,7 +1058,7 @@ class ChooseTask(Task):
         # 0 quit
         choose = -1 
         for key in dic:
-            PrintUtils.print_delay('[{}]:{}'.format(key,dic[key]),0.005)
+            PrintUtils.print_delay('[{}]:{}'.format(key,tr.tr(dic[key])),0.005)
             
         choose = None
         choose_item = config_helper.get_input_value()
@@ -971,9 +1066,9 @@ class ChooseTask(Task):
         while True:
             if choose_item:
                 choose = str(choose_item['choose'])
-                print("为您从配置文件找到默认选项：",choose_item)
+                PrintUtils.print_text(tr.tr("为您从配置文件找到默认选项："),choose_item)
             else:
-                choose = input("请输入[]内的数字以选择:")
+                choose = input(tr.tr("请输入[]内的数字以选择:"))
                 choose_item = None
             # Input From Queue
             if choose.isdecimal() :
@@ -985,10 +1080,60 @@ class ChooseTask(Task):
         return choose,dic[choose]
 
     def run(self):
-        PrintUtils.print_delay("RUN Choose Task:[请输入括号内的数字]")
+        PrintUtils.print_delay(tr.tr("RUN Choose Task:[请输入括号内的数字]"))
         PrintUtils.print_delay(self.tips,0.001)
         return ChooseTask.__choose(self.dic,self.tips,self.array)
 
+
+class ChooseWithCategoriesTask(Task):
+    def __init__(self,dic,tips,categories,array=False) -> None:
+        self.tips= tips
+        self.dic = dic
+        self.array = array
+        self.categories = categories
+        super().__init__(Task.TASK_TYPE_CHOOSE)
+
+    @staticmethod
+    def __choose(data,tips,array,categories):
+        dic = data
+        # dic[0]="quit"
+        # 0 quit
+        choose_id = -1 
+
+        tool_ids = [0]
+        # 打印不同类型工具的分类结果
+        for tool_type, tools_list in dic.items():
+            PrintUtils.print_delay("{}:".format(tr.tr(categories[tool_type])),0.005)
+            sortkeys = sorted(tools_list.keys())
+            for tool_id in sortkeys:
+                PrintUtils.print_delay("  [{}]:{}".format(tool_id,tr.tr(tools_list[tool_id]['tip'])),0.005)
+                tool_ids.append(tool_id)
+            print()
+        PrintUtils.print_delay("[0]:quit\n",0.005)
+
+        choose = None
+        choose_item = config_helper.get_input_value()
+
+        while True:
+            if choose_item:
+                choose_id = str(choose_item['choose'])
+                print(tr.tr("为您从配置文件找到默认选项："),choose_item)
+            else:
+                choose_id = input(tr.tr("请输入[]内的数字以选择:"))
+                choose_item = None
+            # Input From Queue
+            if choose_id.isdecimal() :
+                if int(choose_id) in tool_ids :
+                    choose_id = int(choose_id)
+                    break
+        config_helper.record_choose({"choose":choose_id,"desc":""})
+        PrintUtils.print_fish()
+        return choose_id,""
+
+    def run(self):
+        PrintUtils.print_delay(tr.tr("RUN Choose Task:[请输入括号内的数字]"))
+        PrintUtils.print_delay(self.tips,0.001)
+        return ChooseWithCategoriesTask.__choose(self.dic,self.tips,self.array,self.categories)
 
 
 class FileUtils():
@@ -1007,6 +1152,16 @@ class FileUtils():
         bashrc_result = CmdTask("ls /home/*/.bashrc", 0).run() 
         if bashrc_result[0]!=0:  bashrc_result = CmdTask("ls /root/.bashrc", 0).run()
         return bashrc_result[1]
+        
+    @staticmethod
+    def get_shell():
+        shell = os.environ.get('SHELL')
+        if 'bash' in shell:
+            return 'bash'
+        elif 'zsh' in shell:
+            return 'zsh'
+        else:
+            return 'sh'
 
     @staticmethod
     def exists(path):
@@ -1019,21 +1174,42 @@ class FileUtils():
     @staticmethod
     def getusers():
         """
+        优先获取有home目录的普通用户, 没有普通用户则返回root
+        """
+        users = []
+        
+        # 遍历 /etc/passwd 文件来获取用户名和UID
+        with open('/etc/passwd', 'r') as passwd_file:
+            for line in passwd_file:
+                user_info = line.split(':')
+                username = user_info[0]
+                home_dir = user_info[5]
+                uid = int(user_info[2])
+                
+                # 过滤出有home目录且UID大于等于1000的普通用户
+                if home_dir.startswith('/home') and uid >= 1000:
+                    users.append(username)
+        
+        users.append('root')
+        return users
+    
+    @staticmethod
+    def getusershome():
+        """
         优先home,没有home提供root
         """
-        users = CmdTask("users", 0).run() 
-        if users[0]!=0:  return ['root']
-        # TODO 使用ls再次获取用户名
-        users = users[1][0].split(" ")
-        if len(users[0])==0:
-            user = input("请手动输入你的用户名>>")
-            users.clear()
-            users.append(user)
-        return users
-
+        users = FileUtils.getusers()
+        user_homes = []
+        for user in users:
+            if user=='root':
+                user_homes.append("/root")
+            else:
+                user_homes.append("/home/"+str(user)+"/")
+        return user_homes
 
     @staticmethod
     def new(path,name=None,data=''):
+        PrintUtils.print_info(tr.tr("创建文件:{}").format(path+name))
         if not os.path.exists(path):
             CmdTask("sudo mkdir -p {}".format(path),3).run()
         if name!=None:
@@ -1115,12 +1291,26 @@ class FileUtils():
                         f.write(data)
                     
     @staticmethod
-    def check_result(result,patterns):
+    def check_result(result, patterns:list):
+        # 处理 result 如果其长度正好为 3
+        if len(result) == 3:
+            # 将 result[1] 和 result[2] 安全转换为字符串并拼接
+            result = str(result[1]) + str(result[2])
+        
+        # 如果 result 是字符串，确保它是一个可迭代对象
+        if isinstance(result, str):
+            result = [result]
+        
+        # 遍历 result 中的每一行
         for line in result:
+            line = str(line)  # 确保 line 是字符串
+            # 对每个 pattern 进行检查
             for pattern in patterns:
-                line = str(line)
-                if len(re.findall(pattern, line))>0:
-                    return True
+                # 如果找到一个匹配
+                if len(re.findall(pattern, line)) == 1:
+                    return True  # 返回 True 表示匹配成功
+        # 如果所有行和所有模式都未匹配，返回 False
+        return False
 
 class AptUtils():
     @staticmethod
@@ -1128,13 +1318,13 @@ class AptUtils():
         result = CmdTask('sudo apt update',100).run()
         if result[0]!=0:
             if FileUtils.check_result(result,['certificate','证书']):
-                PrintUtils.print_warn("检测到发生证书校验错误{}，自动取消https校验，如有需要请手动删除：rm /etc/apt/apt.conf.d/99verify-peer.conf".format(result[2]))
+                PrintUtils.print_warn(tr.tr("检测到发生证书校验错误{}，自动取消https校验，如有需要请手动删除：rm /etc/apt/apt.conf.d/99verify-peer.conf").format(result[2]))
                 CmdTask('touch /etc/apt/apt.conf.d/99verify-peer.conf').run()
                 CmdTask('echo  "Acquire { https::Verify-Peer false }" > /etc/apt/apt.conf.d/99verify-peer.conf').run()
+                CmdTask("sudo apt-key adv --keyserver keyserver.ubuntu.com --recv-keys F42ED6FBAB17C654",10).run()
                 result = CmdTask('sudo apt update',100).run()
-                
         if result[0]!=0:
-            PrintUtils.print_warn("apt更新失败,后续程序可能会继续尝试...,{}".format(result[2]))
+            PrintUtils.print_warn(tr.tr("apt更新失败,后续程序可能会继续尝试...,{}").format(result[2]))
             return False
         return True
 
@@ -1144,15 +1334,15 @@ class AptUtils():
         arc = result[1][0].strip("\n")
         if arc=='armhf': arc = 'arm64'
         if result[0]==0: return arc
-        PrintUtils.print_error("小鱼提示:自动获取系统架构失败...请手动选择")
+        PrintUtils.print_error(tr.tr("小鱼提示:自动获取系统架构失败...请手动选择"))
         # @TODO 提供架构选项 amd64,i386,arm
         return None
     
     @staticmethod
     def search_package(name,pattern,replace1="",replace2=""):
-        result = CmdTask("sudo apt-cache search {} ".format(name),20).run()
+        result = CmdTask("sudo apt search {} ".format(name),20).run()
         if result[0]!=0: 
-            PrintUtils.print_error("搜索不到任何{}相关的包".format(name))
+            PrintUtils.print_error(tr.tr("搜索不到任何{}相关的包").format(name))
             return None
         dic = {}
         for line in result[1]:
@@ -1167,13 +1357,19 @@ class AptUtils():
         yes = ""
         if auto_yes: 
             yes="-y"
-
-        result = None
-        for key in dic.keys():
-            result = CmdTask("sudo {} install {} {}".format(apt_tool,dic[key],yes), 0, os_command=os_command).run()
-        if not result:
-            PrintUtils.print_warn("没有找到包：{}".format(name))
-        return result
+        
+        cmd_result = None
+        if dic:
+            for key in dic.keys():
+                cmd_result = CmdTask("sudo {} install {} {}".format(apt_tool,dic[key],yes), 0, os_command=os_command).run()
+                if os_command==False:
+                    if FileUtils.check_result(cmd_result,["apt --fix-broken install"]):
+                        print(cmd_result)
+                        CmdTask("sudo apt --fix-broken install -y", os_command=True).run()
+                        cmd_result = CmdTask("sudo {} install {} {}".format(apt_tool,dic[key],yes), 0, os_command=os_command).run()
+        else:
+            PrintUtils.print_warn(tr.tr("没有找到包：{}").format(name))
+        return cmd_result
 
     @staticmethod
     def install_pkg_check_dep(name):
@@ -1190,10 +1386,53 @@ class AptUtils():
             while FileUtils.check_result(result,['未满足的依赖关系','unmet dependencies']):
                 # 尝试使用aptitude解决依赖问题
                 PrintUtils.print_warn("============================================================")
-                PrintUtils.print_delay("请注意我，检测你在安装过程中出现依赖问题，请在稍后选择解决方案（第一个解决方案不一定可以解决问题，如再遇到可以采用下一个解决方案）,即可解决")
-                input("确认了解上述情况，请输入回车继续安装")
+                PrintUtils.print_delay(tr.tr("请注意我，检测你在安装过程中出现依赖问题，请在稍后选择解决方案（第一个解决方案不一定可以解决问题，如再遇到可以采用下一个解决方案）,即可解决"))
+                input(tr.tr("确认了解上述情况，请输入回车继续安装"))
                 result = AptUtils.install_pkg(name,apt_tool="aptitude", os_command = True, auto_yes=False)
                 result = AptUtils.install_pkg(name,apt_tool="aptitude", os_command = False, auto_yes=True)
+                
+    @staticmethod
+    def get_fast_url(urls,timeout=1.5):
+        """
+        遍历请求 urls 中的地址，按照从快到慢排序返回。
+        参数:
+        - urls (list): 要测试的 URL 列表。
+        返回:
+        - sorted_urls (list): 按照响应时间从快到慢排序的 URL 列表。
+        """
+        latencies = {}
+        for url in urls:
+            parsed_url = urlparse(url)
+            host = parsed_url.netloc
+            path = parsed_url.path
+            try:
+                # 记录开始时间
+                start_time = time.time()
+                # 创建连接并发送请求
+                conn = http.client.HTTPSConnection(host, timeout=timeout)  # 使用 HTTPS 连接
+                conn.request("GET", path)
+                response = conn.getresponse()
+                # 记录结束时间
+                end_time = time.time()
+                # 计算延时（以秒为单位）
+                latency = end_time - start_time
+                # 将延时保存到字典中
+                latencies[url] = latency
+                PrintUtils.print_success("- {}\t\t延时:{:.2f}s".format(url,latency))
+                # 关闭连接
+                conn.close()
+            except Exception as e:
+                # 如果请求失败，记录为 None 或者一个很大的延时
+                # print(f"Error accessing {url}: {e}")
+                PrintUtils.print_info("- {}\t\t超时".format(url))
+                latencies[url] = float('inf')
+
+        # 按照延时从小到大排序 URL
+        sorted_urls = sorted(latencies, key=latencies.get)
+
+        return sorted_urls
+
+
 
 """
 定义基础任务
@@ -1208,12 +1447,12 @@ class BaseTool():
 
         self.name = name
         self.type = tool_type
-        self.autor = '小鱼'
-        self.autor_email = 'fishros@foxmail.com'
+        self.author = '小鱼'
+        self.author_email = 'fishros@foxmail.com'
 
     def init(self):
         # 初始化部分
-        PrintUtils.print_delay("欢迎使用{},本工具由作者{}提供".format(self.name,self.autor))
+        PrintUtils.print_delay(tr.tr("欢迎使用{},本工具由作者{}提供").format(self.name,self.author))
     
     def run(self):
         # 运行该任务
@@ -1224,29 +1463,29 @@ class BaseTool():
         pass
         # PrintUtils.print_delay("一键安装已开源，欢迎给个star/提出问题/帮助完善：https://github.com/fishros/install/ ")
 
-def run_tool_file(file,autorun=True):
+def run_tool_file(file,authorun=True):
     """运行工具文件，可以获取其他工具的对象"""
     import importlib
     tool = importlib.import_module(file.replace(".py","")).Tool()
-    if not autorun: return tool
+    if not authorun: return tool
     if tool.init()==False: return False
     if tool.run()==False: return False
     if tool.uninit()==False: return False
     return tool
 
 def run_tool_url(url,url_prefix):
-    os.system("wget {} -O /tmp/fishinstall/tools/{} --no-check-certificate".format(url,url[url.rfind('/')+1:]))
+    CmdTask("wget {} -O /tmp/fishinstall/tools/{} --no-check-certificate".format(url,url[url.rfind('/')+1:])).run()
     run_tool_file(url.replace(url_prefix,'').replace("/","."))
 
-def download_tools(id,tools):
+def download_tools(id,tools,url_prefix):
     # download tool 
     url = tools[id]['tool']
-    os.system("wget {} -O /tmp/fishinstall/tools/{} --no-check-certificate".format(url,url[url.rfind('/')+1:]))
+    url = os.path.join(url_prefix,url)
+    CmdTask("wget {} -O /tmp/fishinstall/tools/{} --no-check-certificate".format(url,url[url.rfind('/')+1:])).run()
     # download dep 
     for dep in  tools[id]['dep']:
         url = tools[dep]['tool']
-        os.system("wget {} -O /tmp/fishinstall/tools/{} --no-check-certificate".format(url,url[url.rfind('/')+1:]))
-
-
+        url = os.path.join(url_prefix,url)
+        CmdTask("wget {} -O /tmp/fishinstall/tools/{} --no-check-certificate".format(url,url[url.rfind('/')+1:])).run()
 
 osarch = AptUtils.getArch()

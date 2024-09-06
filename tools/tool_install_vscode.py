@@ -8,19 +8,18 @@ class Tool(BaseTool):
     def __init__(self):
         self.name = "一键安装Vscode"
         self.type = BaseTool.TYPE_INSTALL
-        self.autor = '小鱼'
+        self.author = '小鱼'
 
     def install_vscode(self):
         """
-        https://az764295.vo.msecnd.net
         https://az764295.vo.msecnd.net
         """
         PrintUtils.print_info("开始根据系统架构,为你下载对应版本的vscode~")
         # 根据系统架构下载不同版本的安装包
         if osarch=='amd64':
-            CmdTask('sudo wget http://vscode.cdn.azure.cn/stable/6261075646f055b99068d3688932416f2346dd3b/code_1.73.1-1667967334_amd64.deb -O /tmp/vscode.deb',os_command=True).run()
+            CmdTask('sudo wget https://vscode.download.prss.microsoft.com/dbazure/download/stable/903b1e9d8990623e3d7da1df3d33db3e42d80eda/code_1.86.2-1707854558_amd64.deb -O /tmp/vscode.deb',os_command=True).run()
         elif osarch=='arm64':
-            CmdTask('sudo wget http://vscode.cdn.azure.cn/stable/6261075646f055b99068d3688932416f2346dd3b/code_1.73.1-1667966450_arm64.deb -O /tmp/vscode.deb',os_command=True).run()
+            CmdTask('sudo wget https://vscode.download.prss.microsoft.com/dbazure/download/stable/903b1e9d8990623e3d7da1df3d33db3e42d80eda/code_1.86.2-1707853305_arm64.deb -O /tmp/vscode.deb',os_command=True).run()
         else:
             return False
         PrintUtils.print_info("下载完成,接下来为你安装Vscode~")

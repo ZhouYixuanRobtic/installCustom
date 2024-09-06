@@ -14,7 +14,7 @@
 - 一键配置:ROS环境(快速更新ROS环境设置,自动生成环境选择)  [贡献@小鱼](https://github.com/fishros)
 - 一键配置:系统源(更换系统源,支持全版本Ubuntu系统)  [贡献@小鱼](https://github.com/fishros)
 - 一键安装:Docker(支持amd64和arm64)  [贡献@alyssa](https://github.com/alyssa1024)
-- 一键安装:cartographer  [贡献@小鱼&Catalpa ](https://github.com/fishros)
+- 一键安装:cartographer 贡献 [@小鱼](https://github.com/fishros) & [@Catalpa](https://github.com/Y-zi)
 - 一键安装:微信客户端  [贡献@小鱼](https://github.com/fishros)
 
 
@@ -102,14 +102,14 @@ class Tool(BaseTool):
     def __init__(self):
         self.type = BaseTool.TYPE_INSTALL
         self.name = "模板工程"
-        self.autor = '小鱼'
+        self.author = '小鱼'
 
     def run(self):
         #正式的运行
         pass
 ```
 
-接着修改type、name、autor
+接着修改type、name、author
 
 在run函数中编写逻辑，可以提供给你的工具有：
 1. PrintUtils 打印文字
@@ -138,3 +138,5 @@ class Tool(BaseTool):
 - 一键安装nodejs [小鱼](https://github.com/fishros)
 - 一键安装vscode [小鱼](https://github.com/fishros)
 - 一键安装:Docker(支持amd64和arm64) [@alyssa](https://github.com/alyssa1024)
+
+

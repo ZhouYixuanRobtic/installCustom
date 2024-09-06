@@ -4,6 +4,7 @@ from .base import BaseTool
 from .base import PrintUtils,CmdTask,FileUtils,AptUtils,ChooseTask
 from .base import osversion
 from .base import run_tool_file
+from .base import tr
 
 
 class RosVersion:
@@ -18,16 +19,23 @@ class RosVersion:
 
 class RosVersions:
     ros_version = [
-        RosVersion('kinetic', 'ROS1', RosVersion.STATUS_EOL, ['python-catkin-tools','python-rosdep']),
-        RosVersion('melodic', 'ROS1', RosVersion.STATUS_LTS, ['python-catkin-tools','python-rosdep']),
-        RosVersion('noetic',  'ROS1', RosVersion.STATUS_LTS, ['python3-catkin-tools','python3-rosdep']),
-
-        RosVersion('foxy',  'ROS2', RosVersion.STATUS_LTS, ['python3-colcon-common-extensions','python3-argcomplete','python3-rosdep']),
-        RosVersion('galactic',  'ROS2', RosVersion.STATUS_LTS, ['python3-colcon-common-extensions','python3-argcomplete','python3-rosdep']),
+        # ubuntu 24
+        RosVersion('jazzy',  'ROS2', RosVersion.STATUS_LTS, ['python3-colcon-common-extensions','python3-argcomplete','python3-rosdep']),
+        # ubuntu 22 & 24
         RosVersion('rolling',  'ROS2', RosVersion.STATUS_LTS, ['python3-colcon-common-extensions','python3-argcomplete','python3-rosdep']),
-        RosVersion('humble',  'ROS2', RosVersion.STATUS_LTS, ['python3-colcon-common-extensions','python3-argcomplete','python3-rosdep']),
         RosVersion('eloquent',  'ROS2', RosVersion.STATUS_EOL, ['python3-colcon-common-extensions','python3-argcomplete','python3-rosdep']),
+        # ubuntu 22
+        RosVersion('iron',  'ROS2', RosVersion.STATUS_LTS, ['python3-colcon-common-extensions','python3-argcomplete','python3-rosdep']),
+        RosVersion('humble',  'ROS2', RosVersion.STATUS_LTS, ['python3-colcon-common-extensions','python3-argcomplete','python3-rosdep']),
+        RosVersion('galactic',  'ROS2', RosVersion.STATUS_LTS, ['python3-colcon-common-extensions','python3-argcomplete','python3-rosdep']),
+        # ubuntu 20
+        RosVersion('foxy',  'ROS2', RosVersion.STATUS_LTS, ['python3-colcon-common-extensions','python3-argcomplete','python3-rosdep']),
+        RosVersion('noetic',  'ROS1', RosVersion.STATUS_LTS, ['python3-catkin-tools','python3-rosdep']),
+        # ubuntu 18
+        RosVersion('melodic', 'ROS1', RosVersion.STATUS_LTS, ['python-catkin-tools','python-rosdep']),
         RosVersion('dashing',  'ROS2', RosVersion.STATUS_EOL, []),
+        # ubuntu 16
+        RosVersion('kinetic', 'ROS1', RosVersion.STATUS_EOL, ['python-catkin-tools','python-rosdep']),
         RosVersion('crystal',  'ROS2', RosVersion.STATUS_EOL, []),
         RosVersion('bouncy',  'ROS2', RosVersion.STATUS_EOL, []),
         RosVersion('ardent',  'ROS2', RosVersion.STATUS_EOL, []),
@@ -68,6 +76,12 @@ class RosVersions:
             return "ros-{}-desktop-full".format(name)
         elif version=="ROS2":
             return "ros-{}-desktop".format(name)
+
+
+key_urls = [
+    'https://gitee.com/ohhuo/rosdistro/raw/master/ros.asc',
+    'https://raw.githubusercontent.com/ros/rosdistro/master/ros.asc',
+]
 
 ros_mirror_dic = {
     "tsinghua":{"ROS1":"http://mirrors.tuna.tsinghua.edu.cn/ros/ubuntu/","ROS2":"http://mirrors.tuna.tsinghua.edu.cn/ros2/ubuntu/"},
@@ -117,6 +131,7 @@ ros2_dist_dic = {
     'focal':{"tsinghua","huawei","packages.ros","https.packages.ros"},
     'jessie':{"tsinghua","huawei"},
     'jammy':{"tsinghua","huawei","packages.ros","https.packages.ros"},
+    'noble':{"tsinghua","huawei","packages.ros","https.packages.ros"},
     'stretch':{"tsinghua","huawei","packages.ros","https.packages.ros"},
     'trusty':{"tsinghua","huawei"},
     'xenial':{"tsinghua","huawei","packages.ros","https.packages.ros"},
@@ -128,7 +143,7 @@ class Tool(BaseTool):
     def __init__(self):
         self.name = "一键安装ROS和ROS2,支持树莓派Jetson"
         self.type = BaseTool.TYPE_INSTALL
-        self.autor = '小鱼'
+        self.author = '小鱼'
 
 
     def get_mirror_by_code(self,code,arch='amd64',first_choose="tsinghua"):
@@ -160,34 +175,46 @@ class Tool(BaseTool):
 
 
     def add_key(self):
+        PrintUtils.print_success(tr.tr('============正在添加ROS源密钥================='))
         # check apt
-        if not AptUtils.checkapt(): return False
-        # pre-install
+        if not AptUtils.checkapt(): 
+            pass
+        # install dep
         AptUtils.install_pkg('curl')
         AptUtils.install_pkg('gnupg2')
 
         # add key
-        cmd_result = CmdTask("curl -s https://gitee.com/ohhuo/rosdistro/raw/master/ros.asc | sudo apt-key add -",10).run()
+        PrintUtils.print_success(tr.tr('正在挑选最快的密钥服务:{}').format(key_urls))
+        key_url = AptUtils.get_fast_url(key_urls)
+        if not key_url: 
+            PrintUtils.print_error(tr.tr("获取密钥失败"))
+            return
+        key_url = key_url[0]
+        PrintUtils.print_success(tr.tr('已自动选择最快密钥服务:{}').format(key_url))
+
+        cmd_result = CmdTask("curl -s {} | sudo apt-key add -".format(key_url)).run()
+        if cmd_result[0]!=0: 
+            cmd_result = CmdTask("curl -s {} | sudo apt-key add -".format(key_url)).run()
+            
         if cmd_result[0]!=0:
-            cmd_result = CmdTask("curl -s https://gitee.com/ohhuo/rosdistro/raw/master/ros.asc | sudo apt-key add -",10).run()
-        if cmd_result[0]!=0:
-            PrintUtils.print_info("导入密钥失败，开始更换导入方式并二次尝试...")
+            PrintUtils.print_info(tr.tr("导入密钥失败，开始更换导入方式并二次尝试..."))
             cmd_result = CmdTask("sudo apt-key adv --keyserver keyserver.ubuntu.com --recv-keys F42ED6FBAB17C654",10).run()
+
+        # 针对trusted.gpg.d问题解决方案
         if FileUtils.check_result(cmd_result,['trusted.gpg.d']):
-            # curl -s https://gitee.com/ohhuo/rosdistro/raw/master/ros.asc | sudo gpg --no-default-keyring --keyring gnupg-ring:/etc/apt/trusted.gpg.d/ros.gpg --import 
-            # sudo chmod 644 /etc/apt/trusted.gpg.d/ros.gpg
-            cmd_result = CmdTask("curl -s https://gitee.com/ohhuo/rosdistro/raw/master/ros.asc | sudo gpg --no-default-keyring --keyring gnupg-ring:/etc/apt/trusted.gpg.d/ros.gpg --import",10).run()
+            cmd_result = CmdTask("curl -s {} | sudo gpg --no-default-keyring --keyring gnupg-ring:/etc/apt/trusted.gpg.d/ros.gpg --import".format(key_url)).run()
             cmd_result = CmdTask("sudo chmod 644 /etc/apt/trusted.gpg.d/ros.gpg",10).run()
+
         return cmd_result
 
 
     def check_sys_source(self):
         # 更换系统源
         dic = {1:"更换系统源再继续安装",2:"不更换继续安装"}
-        PrintUtils.print_warn("=========接下来这一步很重要，如果不知道怎么选请选择1========")
-        code,result = ChooseTask(dic, "首次安装一定要换源并清理三方源，换源!!!系统默认国外源容易失败!!").run()
+        PrintUtils.print_warn("=========接下来这一步很很很很重要，如果不知道怎么选请选择1========")
+        code,result = ChooseTask(dic, "新手或首次安装一定要一定要一定要换源并清理三方源，换源!!!系统默认国外源容易失败!!").run()
         if code==1: 
-            tool = run_tool_file('tools.tool_config_system_source',autorun=False)
+            tool = run_tool_file('tools.tool_config_system_source',authorun=False)
             tool.change_sys_source()
 
     def get_all_instsll_ros_pkgs(self):
@@ -205,7 +232,6 @@ class Tool(BaseTool):
         """
         检查并添加ROS系统源
         """
-
         arch = AptUtils.getArch()
         if arch==None: return False
 
@@ -237,9 +263,9 @@ class Tool(BaseTool):
             PrintUtils.print_success("恭喜，成功添加ROS源，接下来可以使用apt安装ROS或者使用[1]一键安装ROS安装！") 
             return
 
-        #add source2 
-        PrintUtils.print_warn("换源后更新失败，第三次开始切换源，尝试更换ROS2源为ROS2官方源！") 
-        mirrors = self.get_mirror_by_code(osversion.get_codename(),arch=arch,first_choose="packages.ros")
+
+        PrintUtils.print_warn("换源后更新失败，第三次开始切换源，尝试使用https-ROS官方源～！") 
+        mirrors = self.get_mirror_by_code(osversion.get_codename(),arch=arch,first_choose="https.packages.ros")
         PrintUtils.print_info("根据您的系统，为您推荐安装源为{}".format(mirrors))
         source_data = ''
         for mirror in mirrors:
@@ -251,8 +277,9 @@ class Tool(BaseTool):
             PrintUtils.print_success("恭喜，成功添加ROS源，接下来可以使用apt安装ROS或者使用[1]一键安装ROS安装！") 
             return
 
-        PrintUtils.print_warn("换源后更新失败，第四次开始切换源，尝试使用https-ROS2官方源～！") 
-        mirrors = self.get_mirror_by_code(osversion.get_codename(),arch=arch,first_choose="https.packages.ros")
+        #add source2 
+        PrintUtils.print_warn("换源后更新失败，第四次开始切换源，尝试更换ROS源为http-ROS官方源！") 
+        mirrors = self.get_mirror_by_code(osversion.get_codename(),arch=arch,first_choose="packages.ros")
         PrintUtils.print_info("根据您的系统，为您推荐安装源为{}".format(mirrors))
         source_data = ''
         for mirror in mirrors:
@@ -266,7 +293,6 @@ class Tool(BaseTool):
 
         # echo >>/etc/apt/apt.conf.d/99verify-peer.conf "Acquire { https::Verify-Peer false }"
         if  not AptUtils.checkapt(): PrintUtils.print_error("四次换源后都失败了，请及时联系小鱼获取解决方案并处理！") 
-
 
 
     def support_install(self):
@@ -299,7 +325,8 @@ class Tool(BaseTool):
 
         code,rosname = ChooseTask(ros_name.keys(),"请选择你要安装的ROS版本名称(请注意ROS1和ROS2区别):",True).run()
         if code==0: 
-            PrintUtils.print_error("你选择退出。。。。")
+            PrintUtils.print_error("你选择退出")
+            PrintUtils.print_delay('是因为没有自己想要的ROS版本吗？ROS版本和操作系统版本是有对应关系的哦，所以可能是你的系统版本{}不对!具体请查看：https://fishros.org.cn/forum/topic/96'.format(str(str(osversion.get_name())+str(osversion.get_version()))))
             return
         version_dic = {1:rosname+"桌面版",2:rosname+"基础版(小)"}
         code,name = ChooseTask(version_dic,"请选择安装的具体版本(如果不知道怎么选,请选1桌面版):",False).run()
@@ -317,9 +344,7 @@ class Tool(BaseTool):
 
         if install_tool=='aptitude':
             AptUtils.install_pkg('aptitude')
-            AptUtils.install_pkg('aptitude')
 
-        # 先尝试使用apt 安装，之后再使用aptitude。
         if code==2:
             # 第一次尝试
             cmd_result = CmdTask("sudo {} install  {} -y".format(install_tool_apt,dic_base[install_version]),300,os_command=True).run()
@@ -339,7 +364,7 @@ class Tool(BaseTool):
             if FileUtils.check_result(cmd_result,['未满足的依赖关系','unmet dependencies','but it is not installable']):
                 # 尝试使用aptitude解决依赖问题
                 PrintUtils.print_warn("============================================================")
-                PrintUtils.print_delay("请注意我，检测你在安装过程中出现依赖问题，请在稍后输入n,再选择y,即可解决")
+                PrintUtils.print_delay("请注意我，检测你在安装过程中出现依赖问题，请在稍后输入n,再选择y,即可解决（若无法解决，清在稍后手动运行命令: sudo aptitude install {})".format(RosVersions.get_desktop_version(install_version)))
                 import time
                 input("确认了解情况，请输入回车继续安装")
                 cmd_result = CmdTask("sudo {} install   {}".format(install_tool,RosVersions.get_desktop_version(install_version)),300,os_command=True).run()
@@ -347,7 +372,8 @@ class Tool(BaseTool):
 
         # apt broken error
         if cmd_result[0]!=0:
-            if FileUtils.check_result(cmd_result[1]+cmd_result[2],['apt --fix-broken install -y']):
+            if FileUtils.check_result(cmd_result,['--fix-broken install']):
+                CmdTask("sudo apt --fix-broken install -y").run()
                 if code==2: cmd_result = CmdTask("sudo {} install   {} -y".formatinstall_tool,(dic_base[rosname]),300,os_command=False).run()
                 elif code==1: cmd_result = CmdTask("sudo {} install   {} -y".format(install_tool,rosname),300,os_command=False).run()
 
@@ -376,6 +402,8 @@ class Tool(BaseTool):
         self.add_source()
 
         ros_version = self.choose_and_install_ros()
+        if not ros_version:
+            return
         self.config_env_and_tip(ros_version)
         if self.install_success(ros_version):
             RosVersions.tip_test_command(ros_version)

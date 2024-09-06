@@ -16,11 +16,13 @@ class RosVersion:
 
 
 class RosVersions:
-    ros_version = [
+    ros_version = [ 
+        RosVersion('jazzy', 'ROS2', RosVersion.STATUS_LTS, ['osrf/ros:jazzy-desktop-full'],["ros:jazzy"]),
         RosVersion('noetic',  'ROS1', RosVersion.STATUS_LTS, ['fishros2/ros:noetic-desktop-full'],["ros:noetic"]),
         RosVersion('humble',  'ROS2', RosVersion.STATUS_LTS, ['fishros2/ros:humble-desktop-full'],["ros:humble"]),
-        RosVersion('foxy',  'ROS2', RosVersion.STATUS_LTS, ['fishros2/ros:foxy-desktop'],["ros:foxy"]),
+        RosVersion('foxy',  'ROS2', RosVersion.STATUS_EOL, ['fishros2/ros:foxy-desktop'],["ros:foxy"]),
         RosVersion('galactic',  'ROS2', RosVersion.STATUS_LTS, ['osrf/ros:galactic-desktop'],["ros:galactic"]),
+        RosVersion('iron',  'ROS2', RosVersion.STATUS_LTS, ['osrf/ros:iron-desktop-full'],["ros:iron"]),
         RosVersion('melodic', 'ROS1', RosVersion.STATUS_LTS, ['fishros2/ros:melodic-desktop-full'],["ros:melodic"]),
         RosVersion('rolling',  'ROS2', RosVersion.STATUS_LTS, ['osrf/ros:rolling-desktop-full'],["ros:rolling"]),
         RosVersion('kinetic', 'ROS1', RosVersion.STATUS_EOL, ['osrf/ros:kinetic-desktop-full'],["ros:kinetic"]),
@@ -35,13 +37,18 @@ class RosVersions:
 
     @staticmethod
     def get_version_string(name):
+        names = str(name).split(' ')
+        if len(names)>=1:
+            ros_version = names[0]
+        else:
+            return None,None
         for version in RosVersions.ros_version:
-            if version.name == name:
+            if version.name == ros_version:
                 if version.status==RosVersion.STATUS_EOL:
                     eol = "停止维护"
                 else:
                     eol = "长期支持"
-                return "{}({}),该版本目前状态:{}".format(version.name,version.version,eol)
+                return "{}({}),该版本目前状态:{}".format(version.name,version.version,eol), ros_version
 
     @staticmethod
     def get_image(name):
@@ -77,7 +84,7 @@ class RosVersions:
         """获取可安装的ROS版本列表"""
         names = []
         for version in RosVersions.ros_version:
-            names.append(version.name)
+            names.append(f'{version.name} ({version.version})')
         return names
 
 
@@ -85,7 +92,7 @@ class Tool(BaseTool):
     def __init__(self):
         self.name = "一键安装ROS-Docker版,支持所有版本ROS"
         self.type = BaseTool.TYPE_INSTALL
-        self.autor = '小鱼'
+        self.author = '小鱼'
 
     def get_container_scripts(self, name, rosversion, delete_file):
         delete_command = "sudo rm -rf {}".format(delete_file)
@@ -122,13 +129,13 @@ newgrp docker
     def choose_image_version(self):
         """获取要安装的ROS版本"""
         PrintUtils.print_success("================================1.版本选择======================================")
-        code,rosname = ChooseTask(RosVersions.get_vesion_list(),"请选择你要安装的ROS版本名称(请注意ROS1和ROS2区别):",True).run()
+        code,result = ChooseTask(RosVersions.get_vesion_list(),"请选择你要安装的ROS版本名称(请注意ROS1和ROS2区别):",True).run()
         if code==0: 
             PrintUtils.print_error("你选择退出。。。。")
             return 
-        PrintUtils.print_info("你选择了{}".format(RosVersions.get_version_string(rosname)))
+        version_info,rosname = RosVersions.get_version_string(result)
+        PrintUtils.print_info("你选择了{}".format(version_info))
         return rosname
-        # TODO 检查是系统架构
 
     def install_docker(self):
         """安装Docker"""
@@ -159,6 +166,10 @@ newgrp docker
         PrintUtils.print_warn("请为你的{}容器取个名字吧！".format(name))
         container_name = input(">>")
         PrintUtils.print_info("收到名字{}".format(container_name))
+        while not container_name:
+            PrintUtils.print_warn("请为你的{}容器取个名字吧！".format(name))
+            container_name = input(">>")
+
         # get home
         user =  FileUtils.getusers()[0]
         home = "/home/{}".format(user)
@@ -167,12 +178,16 @@ newgrp docker
         if FileUtils.exists("/dev/dri/renderD128"):
             use_dri = "--device=/dev/dri/renderD128"
 
+        use_snd = ""
+        if FileUtils.exists("/dev/snd"):
+            use_snd = "--device=/dev/snd"
+
         if container_name:
-            command_create_x11 = "sudo docker run -dit --name={} -v {}:{} -v /tmp/.X11-unix:/tmp/.X11-unix {} -v /dev/dri:/dev/dri --device /dev/snd -e DISPLAY=unix$DISPLAY -w {}  {}".format(
-                    container_name,home,home,use_dri,home,RosVersions.get_image(name))
+            command_create_x11 = "sudo docker run -dit --name={} --privileged -v {}:{} -v /tmp/.X11-unix:/tmp/.X11-unix {} -v /dev:/dev -v /dev/dri:/dev/dri {} -e DISPLAY=unix$DISPLAY -w {}  {}".format(
+                    container_name,home,home,use_dri,use_snd,home,RosVersions.get_image(name))
         else:
-            command_create_x11 = "sudo docker run -dit  -v {}:{} -v /tmp/.X11-unix:/tmp/.X11-unix {} -v /dev/dri:/dev/dri --device /dev/snd -e DISPLAY=unix$DISPLAY -w {}  {}".format(
-                    home,home,use_dri,home,RosVersions.get_image(name))
+            command_create_x11 = "sudo docker run -dit --privileged -v {}:{} -v /tmp/.X11-unix:/tmp/.X11-unix {}  -v /dev:/dev -v /dev/dri:/dev/dri {} -e DISPLAY=unix$DISPLAY -w {}  {}".format(
+                    home,home,use_dri,use_snd,home,RosVersions.get_image(name))
 
         CmdTask(command_create_x11,os_command=True).run()
         # CmdTask("""docker exec -it {} /bin/bash -c "echo -e '\nsource /ros_entrypoint.sh' >> ~/.bashrc" """.format(container_name),os_command=True).run()
@@ -188,8 +203,11 @@ newgrp docker
         PrintUtils.print_success("================================5.生成命令======================================")
         rosversion = RosVersions.get_ros_version(rosname).version
         user =  FileUtils.getusers()[0]
-        bashrc = '/home/{}/.bashrc'.format(user)
-        bin_path = "/home/{}/.fishros/bin/".format(user)
+        bin_path = "/root/.fishros/bin/"
+        bashrc = '/root/.bashrc'
+        if user!='root':
+            bin_path = "/home/{}/.fishros/bin/".format(user)
+            bashrc = '/home/{}/.bashrc'.format(user)
         home = "/home/{}".format(user)
 
         # create file

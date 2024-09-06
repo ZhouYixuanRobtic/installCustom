@@ -8,7 +8,7 @@ class Tool(BaseTool):
     def __init__(self):
         self.name = "一键安装nodejs并配置环境"
         self.type = BaseTool.TYPE_INSTALL
-        self.autor = '小鱼'
+        self.author = '小鱼'
 
     def install_nodejs(self):
         PrintUtils.print_info("开始根据系统架构,为你下载对应版本的nodejs~")
@@ -30,7 +30,10 @@ class Tool(BaseTool):
         # 配置环境
         for bashrc in FileUtils.getbashrc():
             FileUtils.find_replace_sub(bashrc,"# >>> nodejs initialize >>>","# <<< nodejs initialize <<<", "")
-            FileUtils.append(bashrc,"# >>> nodejs initialize >>>\n"+"export PATH=$PATH:/opt/nodejs/node-v18.12.1-linux-x64/bin/"+"\n# <<< nodejs initialize <<<")
+            if osarch=='amd64':
+                FileUtils.append(bashrc,"# >>> nodejs initialize >>>\n"+"export PATH=$PATH:/opt/nodejs/node-v18.12.1-linux-x64/bin/"+"\n# <<< nodejs initialize <<<")
+            else:
+                FileUtils.append(bashrc,"# >>> nodejs initialize >>>\n"+"export PATH=$PATH:/opt/nodejs/node-v18.12.1-linux-arm64/bin/"+"\n# <<< nodejs initialize <<<")
         PrintUtils.print_info("配置完成,接下来你可以尝试使用node和npm指令运行了~")
 
     def run(self):
