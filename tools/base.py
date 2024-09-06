@@ -1066,7 +1066,7 @@ class ChooseTask(Task):
         while True:
             if choose_item:
                 choose = str(choose_item['choose'])
-                PrintUtils.print_text(tr.tr("为您从配置文件找到默认选项："),choose_item)
+                PrintUtils.print_text(tr.tr("为您从配置文件找到默认选项："),str(choose_item))
             else:
                 choose = input(tr.tr("请输入[]内的数字以选择:"))
                 choose_item = None
